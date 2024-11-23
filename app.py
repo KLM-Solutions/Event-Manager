@@ -187,15 +187,19 @@ def add_medication_form():
         name = st.text_input("Medication Name")
         dosage = st.text_input("Dosage")
         
-        # Time selection in a single column for better precision
+        # Time selection with exact time preservation
         selected_time = st.time_input(
             "Select Time",
             value=datetime.now(pytz.timezone('Asia/Kolkata')).time(),
-            step=60  # 1-minute intervals
+            step=60,  # 1-minute intervals
+            help="Select the exact time for your medication"
         )
         
-        # Display the exact selected time
+        # Convert to string maintaining the exact time
+        exact_time = selected_time.strftime("%H:%M")
         formatted_time = selected_time.strftime("%I:%M %p")
+        
+        # Display the exact time that will be used
         st.write(f"Reminder will be set for: **{formatted_time}**")
 
         frequency_options = [
@@ -238,19 +242,16 @@ def add_medication_form():
         submitted = st.form_submit_button("Add Medication")
         if submitted:
             if name and dosage and frequency:
-                # Use the exact selected time
-                time_str = selected_time.strftime("%H:%M")
-                
                 reminder_settings = {
                     "enabled": reminder,
                     "remind_before": remind_before if reminder else 0,
-                    "time": time_str  # Store exact time
+                    "time": exact_time  # Use the exact time string
                 }
 
                 medication_manager.add_medication(
                     name=name,
                     dosage=dosage,
-                    time=time_str,
+                    time=exact_time,  # Use the exact time string
                     frequency=frequency,
                     notes=notes,
                     reminder_settings=reminder_settings
