@@ -1,5 +1,6 @@
 import streamlit as st
 from datetime import datetime, timedelta, time
+from win10toast import ToastNotifier
 import json
 import os
 import time as tm
@@ -7,7 +8,7 @@ from plyer import notification
 import schedule
 import threading
 import pytz
-from win10toast import ToastNotifier
+
 
 # Initialize session state
 if 'medications' not in st.session_state:
