@@ -86,20 +86,36 @@ class MedicationManager:
         except Exception as e:
             st.error(f"Error loading medications: {e}")
 
+# Replace the current send_notification function with this:
 def send_notification(title, message):
     try:
-        # Windows notification
-        toaster = ToastNotifier()
-        toaster.show_toast(
-            title,
-            message,
-            duration=10,
-            threaded=True
+        # First try plyer notification
+        notification.notify(
+            title=title,
+            message=message,
+            app_icon=None,
+            timeout=10,
         )
-        # Also show in-app notification
-        st.toast(f"{title}: {message}")
-    except Exception as e:
-        st.error(f"Notification error: {e}")
+    except:
+        try:
+            # If plyer fails, try platform-specific notification
+            import platform
+            
+            if platform.system() == 'Windows':
+                try:
+                    from win10toast import ToastNotifier
+                    toaster = ToastNotifier()
+                    toaster.show_toast(title, message, duration=10, threaded=True)
+                except:
+                    pass
+            
+            # Always show in-app notification as fallback
+            st.toast(f"🔔 {title}: {message}")
+            
+        except Exception as e:
+            # If all fails, show in-app notification
+            st.toast(f"🔔 {title}: {message}")
+            st.warning(f"Notification: {title} - {message}")
 def check_medication_times():
     while True:
         if st.session_state.notifications_enabled:
