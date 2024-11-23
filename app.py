@@ -3,22 +3,12 @@ from datetime import datetime, time
 import json
 import os
 import time as tm
-from plyer import notification  # For desktop notifications
+from plyer import notification
 import schedule
 import threading
 import pytz
 
-
-# Initialize session state if not exists
-if 'medications' not in st.session_state:
-    st.session_state.medications = {}
-
-class MedicationManager:
-    def __init__(self):
-        self.medications = st.session_state.medications
-        self.load_medications()
-
-    # Initialize session state
+# Initialize session state
 if 'medications' not in st.session_state:
     st.session_state.medications = {}
 if 'notifications_enabled' not in st.session_state:
@@ -29,7 +19,7 @@ class MedicationManager:
         self.medications = st.session_state.medications
         self.load_medications()
 
-    def add_medication(self, name, dosage, time, frequency, notes=None, reminder=True):
+    def add_medication(self, name, dosage, time, frequency, notes=None, reminder_settings=None):
         med_id = f"med_{datetime.now().strftime('%Y%m%d%H%M%S')}"
         medication = {
             "id": med_id,
@@ -39,12 +29,14 @@ class MedicationManager:
             "frequency": frequency,
             "notes": notes,
             "status": "pending",
-            "reminder": reminder,
+            "reminder_settings": reminder_settings or {"enabled": False},
             "created_at": datetime.now().isoformat()
         }
         self.medications[med_id] = medication
         st.session_state.medications = self.medications
+        self.save_medications()
         return medication
+
     def get_medications(self, filter_type="today"):
         if filter_type == "all":
             return list(self.medications.values())
@@ -65,6 +57,7 @@ class MedicationManager:
         if med_id in self.medications:
             self.medications[med_id].update(updates)
             st.session_state.medications = self.medications
+            self.save_medications()
             return self.medications[med_id]
         return None
 
@@ -72,26 +65,33 @@ class MedicationManager:
         if med_id in self.medications:
             del self.medications[med_id]
             st.session_state.medications = self.medications
+            self.save_medications()
             return True
         return False
 
     def save_medications(self):
-        # Optional: Save to file if needed
-        pass
+        try:
+            with open("medications.json", "w") as f:
+                json.dump(self.medications, f, indent=2)
+        except Exception as e:
+            st.error(f"Error saving medications: {e}")
 
     def load_medications(self):
-        # Optional: Load from file if needed
-        pass
-
-# Initialize the medication manager
-medication_manager = MedicationManager()
+        try:
+            if os.path.exists("medications.json"):
+                with open("medications.json", "r") as f:
+                    loaded_meds = json.load(f)
+                    self.medications = loaded_meds
+                    st.session_state.medications = loaded_meds
+        except Exception as e:
+            st.error(f"Error loading medications: {e}")
 
 def send_notification(title, message):
     try:
         notification.notify(
             title=title,
             message=message,
-            app_icon=None,  # e.g. 'C:\\icon_32x32.ico'
+            app_icon=None,
             timeout=10,
         )
     except Exception as e:
@@ -100,39 +100,43 @@ def send_notification(title, message):
 def check_medication_times():
     while True:
         if st.session_state.notifications_enabled:
-            current_time = datetime.now().time()
+            ist = pytz.timezone('Asia/Kolkata')
+            current_time = datetime.now(ist)
+            
             for med in st.session_state.medications.values():
-                if med['status'] == 'pending' and med['reminder']:
+                if med['status'] == 'pending' and med.get('reminder_settings', {}).get('enabled'):
                     med_time = datetime.strptime(med['time'], "%H:%M").time()
+                    reminder_settings = med.get('reminder_settings', {})
+                    
+                    # Check main medication time
                     if (current_time.hour == med_time.hour and 
                         current_time.minute == med_time.minute):
                         send_notification(
                             "Medication Reminder",
                             f"Time to take {med['name']} - {med['dosage']}"
                         )
+                    
+                    # Check advance reminder
+                    remind_before = reminder_settings.get('remind_before', 0)
+                    if remind_before > 0:
+                        reminder_time = datetime.combine(current_time.date(), med_time)
+                        reminder_time = reminder_time - timedelta(minutes=remind_before)
+                        if (current_time.hour == reminder_time.hour and 
+                            current_time.minute == reminder_time.minute):
+                            send_notification(
+                                "Advance Medication Reminder",
+                                f"Reminder: Take {med['name']} in {remind_before} minutes"
+                            )
+        
         tm.sleep(60)  # Check every minute
 
 # Start notification thread
 notification_thread = threading.Thread(target=check_medication_times, daemon=True)
 notification_thread.start()
 
-def main():
-    st.title("Medication Manager")
-
-    # Sidebar for navigation and settings
-    page = st.sidebar.radio("Navigation", ["View Medications", "Add Medication", "Settings"])
-
-    if page == "View Medications":
-        show_medications()
-    elif page == "Add Medication":
-        add_medication_form()
-    else:
-        show_settings()
-
 def show_settings():
     st.header("Notification Settings")
     
-    # Enable/Disable notifications
     notifications_enabled = st.toggle(
         "Enable Notifications",
         value=st.session_state.notifications_enabled
@@ -145,19 +149,29 @@ def show_settings():
         else:
             st.warning("Notifications disabled!")
 
-    # Time zone selection
     time_zones = pytz.all_timezones
+    default_timezone = 'Asia/Kolkata'
+    default_index = time_zones.index(default_timezone)
+    
     selected_timezone = st.selectbox(
         "Select your timezone",
         time_zones,
-        index=time_zones.index('UTC')
+        index=default_index,
+        help="For India, use Asia/Kolkata timezone"
     )
+
+    current_time = datetime.now(pytz.timezone(selected_timezone))
+    st.write(f"Current time in {selected_timezone}: {current_time.strftime('%I:%M %p, %d %B %Y')}")
+    
+    if selected_timezone == 'Asia/Kolkata':
+        st.success("You have selected Indian Standard Time (IST)")
     
     st.info("""
     Notification Tips:
     - Make sure to allow browser notifications
     - Notifications will only work when the app is running
     - You'll receive notifications at the exact medication times
+    - Indian Standard Time (IST) is UTC+5:30
     """)
 
 def add_medication_form():
@@ -166,29 +180,103 @@ def add_medication_form():
     with st.form("add_medication_form"):
         name = st.text_input("Medication Name")
         dosage = st.text_input("Dosage")
-        time = st.time_input("Time")
-        frequency = st.text_input("Frequency")
-        notes = st.text_area("Notes")
-        reminder = st.checkbox("Enable reminder for this medication", value=True)
+        
+        col1, col2 = st.columns([2, 1])
+        
+        with col1:
+            time = st.time_input(
+                "Select Time",
+                value=datetime.now(pytz.timezone('Asia/Kolkata')).time(),
+            )
+        
+        with col2:
+            am_pm = st.selectbox(
+                "AM/PM",
+                options=["AM", "PM"],
+                index=0 if time.hour < 12 else 1
+            )
+
+        hour_12 = time.hour if time.hour <= 12 else time.hour - 12
+        if hour_12 == 0:
+            hour_12 = 12
+        formatted_time = f"{hour_12}:{time.strftime('%M')} {am_pm}"
+        
+        st.write(f"Selected time: **{formatted_time}**")
+
+        frequency_options = [
+            "Once daily",
+            "Twice daily",
+            "Three times daily",
+            "Every 8 hours",
+            "Every 12 hours",
+            "Custom"
+        ]
+        
+        frequency = st.selectbox(
+            "Frequency",
+            options=frequency_options
+        )
+        
+        if frequency == "Custom":
+            frequency = st.text_input(
+                "Enter custom frequency",
+                help="Example: Every 6 hours, Weekly, etc."
+            )
+
+        st.write("Reminder Settings")
+        reminder = st.checkbox("Enable reminders", value=True)
+        
+        remind_before = 0
+        additional_reminders = []
+        if reminder:
+            remind_before = st.slider(
+                "Remind me before",
+                min_value=0,
+                max_value=60,
+                value=15,
+                step=5,
+                help="Minutes before medication time"
+            )
+            
+            additional_reminders = st.multiselect(
+                "Additional reminders",
+                ["If not taken within 30 minutes", "Repeat every 15 minutes until taken"],
+                default=["If not taken within 30 minutes"]
+            )
+
+        notes = st.text_area("Notes (Optional)")
 
         submitted = st.form_submit_button("Add Medication")
         if submitted:
-            if name and dosage and time and frequency:
+            if name and dosage and frequency:
+                hour_24 = time.hour
+                if am_pm == "PM" and hour_24 < 12:
+                    hour_24 += 12
+                elif am_pm == "AM" and hour_24 == 12:
+                    hour_24 = 0
+                
+                time_24 = time.replace(hour=hour_24)
+                
+                reminder_settings = {
+                    "enabled": reminder,
+                    "remind_before": remind_before if reminder else 0,
+                    "additional_reminders": additional_reminders if reminder else []
+                }
+
                 medication_manager.add_medication(
                     name=name,
                     dosage=dosage,
-                    time=time.strftime("%H:%M"),
+                    time=time_24.strftime("%H:%M"),
                     frequency=frequency,
                     notes=notes,
-                    reminder=reminder
+                    reminder_settings=reminder_settings
                 )
-                st.success("Medication added successfully!")
+                st.success(f"Medication added successfully! Reminder set for {formatted_time}")
                 st.rerun()
             else:
                 st.error("Please fill in all required fields.")
 
 def show_medications():
-    # Filter options
     col1, col2 = st.columns([2, 1])
     with col1:
         filter_type = st.selectbox(
@@ -197,15 +285,6 @@ def show_medications():
             key="filter"
         )
     
-    with col2:
-        st.write("")
-        st.write("")
-        if st.button("🔔 Test Notification"):
-            send_notification(
-                "Test Notification",
-                "This is a test notification from Medication Manager!"
-            )
-
     medications = medication_manager.get_medications(filter_type)
 
     if not medications:
@@ -213,42 +292,56 @@ def show_medications():
         return
 
     for med in medications:
-        col1, col2, col3, col4 = st.columns([3, 1, 1, 1])
+        col1, col2, col3 = st.columns([3, 1, 1])
+        
+        time_24 = datetime.strptime(med['time'], "%H:%M")
+        time_12 = time_24.strftime("%I:%M %p")
         
         with col1:
-            st.write(f"**{med['name']}** - {med['dosage']}")
-            st.write(f"Time: {med['time']} | Frequency: {med['frequency']}")
+            st.markdown(f"""
+            **{med['name']}** - {med['dosage']}
+            Time: {time_12} | Frequency: {med['frequency']}
+            """)
+            
+            if med.get('reminder_settings', {}).get('enabled'):
+                reminder_info = f"🔔 Reminder set for {time_12}"
+                if med['reminder_settings'].get('remind_before'):
+                    reminder_info += f" (with {med['reminder_settings']['remind_before']} min advance notice)"
+                st.info(reminder_info)
+            
             if med.get('notes'):
                 st.write(f"Notes: {med['notes']}")
-            if med.get('reminder'):
-                st.write("🔔 Reminders enabled")
 
         with col2:
-            if st.button(
-                "Mark Complete" if med['status'] == 'pending' else "Mark Pending",
+            status_button = st.button(
+                "✓ Taken" if med['status'] == 'pending' else "↺ Reset",
                 key=f"status_{med['id']}"
-            ):
+            )
+            if status_button:
                 new_status = "completed" if med['status'] == 'pending' else 'pending'
                 medication_manager.update_medication(med['id'], {"status": new_status})
                 st.rerun()
 
         with col3:
-            if st.button("Delete", key=f"delete_{med['id']}"):
-                medication_manager.delete_medication(med['id'])
-                st.rerun()
-
-        with col4:
-            if st.button(
-                "🔕" if med.get('reminder') else "🔔",
-                key=f"reminder_{med['id']}"
-            ):
-                medication_manager.update_medication(
-                    med['id'],
-                    {"reminder": not med.get('reminder', True)}
-                )
-                st.rerun()
+            if st.button("🗑️ Delete", key=f"delete_{med['id']}"):
+                if st.button("Confirm Delete", key=f"confirm_{med['id']}"):
+                    medication_manager.delete_medication(med['id'])
+                    st.rerun()
 
         st.divider()
+
+def main():
+    st.title("Medication Manager")
+
+    # Sidebar for navigation
+    page = st.sidebar.radio("Navigation", ["View Medications", "Add Medication", "Settings"])
+
+    if page == "View Medications":
+        show_medications()
+    elif page == "Add Medication":
+        add_medication_form()
+    else:
+        show_settings()
 
 if __name__ == "__main__":
     medication_manager = MedicationManager()
