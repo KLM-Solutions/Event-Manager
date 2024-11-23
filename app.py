@@ -7,6 +7,7 @@ from plyer import notification
 import schedule
 import threading
 import pytz
+from win10toast import ToastNotifier
 
 # Initialize session state
 if 'medications' not in st.session_state:
