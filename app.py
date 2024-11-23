@@ -8,8 +8,6 @@ from plyer import notification
 import schedule
 import threading
 import pytz
-
-
 # Initialize session state
 if 'medications' not in st.session_state:
     st.session_state.medications = {}
