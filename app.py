@@ -89,15 +89,18 @@ class MedicationManager:
 
 def send_notification(title, message):
     try:
-        notification.notify(
-            title=title,
-            message=message,
-            app_icon=None,
-            timeout=10,
+        # Windows notification
+        toaster = ToastNotifier()
+        toaster.show_toast(
+            title,
+            message,
+            duration=10,
+            threaded=True
         )
+        # Also show in-app notification
+        st.toast(f"{title}: {message}")
     except Exception as e:
         st.error(f"Notification error: {e}")
-
 def check_medication_times():
     while True:
         if st.session_state.notifications_enabled:
