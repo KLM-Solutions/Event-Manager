@@ -142,4 +142,4 @@ def check_medication_times():
 notification_thread = threading.Thread(target=check_medication_times, daemon=True)
 notification_thread.start()
 
-            help="Choose the time you want to take this medication"
+            
