@@ -1,5 +1,5 @@
 import streamlit as st
-from datetime import datetime, time
+from datetime import datetime, timedelta
 import json
 import os
 import time as tm
@@ -102,33 +102,39 @@ def check_medication_times():
         if st.session_state.notifications_enabled:
             ist = pytz.timezone('Asia/Kolkata')
             current_time = datetime.now(ist)
+            current_minute = current_time.strftime("%H:%M")
             
             for med in st.session_state.medications.values():
                 if med['status'] == 'pending' and med.get('reminder_settings', {}).get('enabled'):
-                    med_time = datetime.strptime(med['time'], "%H:%M").time()
+                    med_time = med['time']  # This is already in HH:MM format
                     reminder_settings = med.get('reminder_settings', {})
                     
-                    # Check main medication time
-                    if (current_time.hour == med_time.hour and 
-                        current_time.minute == med_time.minute):
+                    # Check exact medication time
+                    if current_minute == med_time:
                         send_notification(
                             "Medication Reminder",
                             f"Time to take {med['name']} - {med['dosage']}"
                         )
                     
-                    # Check advance reminder
+                    # Calculate advance reminder time
                     remind_before = reminder_settings.get('remind_before', 0)
                     if remind_before > 0:
-                        reminder_time = datetime.combine(current_time.date(), med_time)
-                        reminder_time = reminder_time - timedelta(minutes=remind_before)
-                        if (current_time.hour == reminder_time.hour and 
-                            current_time.minute == reminder_time.minute):
+                        reminder_dt = datetime.strptime(med_time, "%H:%M")
+                        reminder_dt = reminder_dt.replace(
+                            year=current_time.year,
+                            month=current_time.month,
+                            day=current_time.day
+                        )
+                        reminder_dt = reminder_dt - timedelta(minutes=remind_before)
+                        reminder_time = reminder_dt.strftime("%H:%M")
+                        
+                        if current_minute == reminder_time:
                             send_notification(
                                 "Advance Medication Reminder",
                                 f"Reminder: Take {med['name']} in {remind_before} minutes"
                             )
         
-        tm.sleep(60)  # Check every minute
+        tm.sleep(30)  # Check every 30 seconds
 
 # Start notification thread
 notification_thread = threading.Thread(target=check_medication_times, daemon=True)
@@ -161,7 +167,7 @@ def show_settings():
     )
 
     current_time = datetime.now(pytz.timezone(selected_timezone))
-    st.write(f"Current time in {selected_timezone}: {current_time.strftime('%I:%M %p, %d %B %Y')}")
+    st.write(f"Current time: **{current_time.strftime('%I:%M %p, %d %B %Y')}**")
     
     if selected_timezone == 'Asia/Kolkata':
         st.success("You have selected Indian Standard Time (IST)")
@@ -181,27 +187,16 @@ def add_medication_form():
         name = st.text_input("Medication Name")
         dosage = st.text_input("Dosage")
         
-        col1, col2 = st.columns([2, 1])
+        # Time selection in a single column for better precision
+        selected_time = st.time_input(
+            "Select Time",
+            value=datetime.now(pytz.timezone('Asia/Kolkata')).time(),
+            step=60  # 1-minute intervals
+        )
         
-        with col1:
-            time = st.time_input(
-                "Select Time",
-                value=datetime.now(pytz.timezone('Asia/Kolkata')).time(),
-            )
-        
-        with col2:
-            am_pm = st.selectbox(
-                "AM/PM",
-                options=["AM", "PM"],
-                index=0 if time.hour < 12 else 1
-            )
-
-        hour_12 = time.hour if time.hour <= 12 else time.hour - 12
-        if hour_12 == 0:
-            hour_12 = 12
-        formatted_time = f"{hour_12}:{time.strftime('%M')} {am_pm}"
-        
-        st.write(f"Selected time: **{formatted_time}**")
+        # Display the exact selected time
+        formatted_time = selected_time.strftime("%I:%M %p")
+        st.write(f"Reminder will be set for: **{formatted_time}**")
 
         frequency_options = [
             "Once daily",
@@ -227,46 +222,35 @@ def add_medication_form():
         reminder = st.checkbox("Enable reminders", value=True)
         
         remind_before = 0
-        additional_reminders = []
         if reminder:
             remind_before = st.slider(
                 "Remind me before",
                 min_value=0,
                 max_value=60,
-                value=15,
+                value=5,
                 step=5,
                 help="Minutes before medication time"
             )
-            
-            additional_reminders = st.multiselect(
-                "Additional reminders",
-                ["If not taken within 30 minutes", "Repeat every 15 minutes until taken"],
-                default=["If not taken within 30 minutes"]
-            )
 
-        notes = st.text_area("Notes (Optional)")
+        notes = st.text_area("Notes (Optional)", 
+            placeholder="Example: take with food, take after meals, etc.")
 
         submitted = st.form_submit_button("Add Medication")
         if submitted:
             if name and dosage and frequency:
-                hour_24 = time.hour
-                if am_pm == "PM" and hour_24 < 12:
-                    hour_24 += 12
-                elif am_pm == "AM" and hour_24 == 12:
-                    hour_24 = 0
-                
-                time_24 = time.replace(hour=hour_24)
+                # Use the exact selected time
+                time_str = selected_time.strftime("%H:%M")
                 
                 reminder_settings = {
                     "enabled": reminder,
                     "remind_before": remind_before if reminder else 0,
-                    "additional_reminders": additional_reminders if reminder else []
+                    "time": time_str  # Store exact time
                 }
 
                 medication_manager.add_medication(
                     name=name,
                     dosage=dosage,
-                    time=time_24.strftime("%H:%M"),
+                    time=time_str,
                     frequency=frequency,
                     notes=notes,
                     reminder_settings=reminder_settings
@@ -294,6 +278,7 @@ def show_medications():
     for med in medications:
         col1, col2, col3 = st.columns([3, 1, 1])
         
+        # Convert stored time to 12-hour format for display
         time_24 = datetime.strptime(med['time'], "%H:%M")
         time_12 = time_24.strftime("%I:%M %p")
         
@@ -313,20 +298,18 @@ def show_medications():
                 st.write(f"Notes: {med['notes']}")
 
         with col2:
-            status_button = st.button(
+            if st.button(
                 "✓ Taken" if med['status'] == 'pending' else "↺ Reset",
                 key=f"status_{med['id']}"
-            )
-            if status_button:
+            ):
                 new_status = "completed" if med['status'] == 'pending' else 'pending'
                 medication_manager.update_medication(med['id'], {"status": new_status})
                 st.rerun()
 
         with col3:
             if st.button("🗑️ Delete", key=f"delete_{med['id']}"):
-                if st.button("Confirm Delete", key=f"confirm_{med['id']}"):
-                    medication_manager.delete_medication(med['id'])
-                    st.rerun()
+                medication_manager.delete_medication(med['id'])
+                st.rerun()
 
         st.divider()
 
