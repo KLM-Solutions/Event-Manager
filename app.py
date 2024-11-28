@@ -1,13 +1,28 @@
-import streamlit as st
-from datetime import datetime, timedelta, time
-from win10toast import ToastNotifier
-import json
-import os
-import time as tm
-from plyer import notification
-import schedule
-import threading
-import pytz
+try:
+    import streamlit as st
+    from datetime import datetime, timedelta, time
+    import json
+    import os
+    import time as tm
+    import threading
+    import pytz
+    
+    # Optional imports with fallbacks
+    try:
+        from plyer import notification
+    except ImportError:
+        notification = None
+    
+    try:
+        from win10toast import ToastNotifier
+    except ImportError:
+        ToastNotifier = None
+
+except ImportError as e:
+    print(f"Missing required packages. Please install them using:")
+    print("pip install streamlit datetime plyer win10toast pytz")
+    raise e
+
 # Initialize session state
 if 'medications' not in st.session_state:
     st.session_state.medications = {}
