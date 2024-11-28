@@ -6,21 +6,17 @@ try:
     import time as tm
     import threading
     import pytz
-    
+    import platform
+
     # Optional imports with fallbacks
     try:
         from plyer import notification
     except ImportError:
         notification = None
-    
-    try:
-        from win10toast import ToastNotifier
-    except ImportError:
-        ToastNotifier = None
 
 except ImportError as e:
     print(f"Missing required packages. Please install them using:")
-    print("pip install streamlit datetime plyer win10toast pytz")
+    print("pip install streamlit plyer pytz")
     raise e
 
 # Initialize session state
@@ -104,33 +100,22 @@ class MedicationManager:
 # Replace the current send_notification function with this:
 def send_notification(title, message):
     try:
-        # First try plyer notification
-        notification.notify(
-            title=title,
-            message=message,
-            app_icon=None,
-            timeout=10,
-        )
-    except:
-        try:
-            # If plyer fails, try platform-specific notification
-            import platform
-            
-            if platform.system() == 'Windows':
-                try:
-                    from win10toast import ToastNotifier
-                    toaster = ToastNotifier()
-                    toaster.show_toast(title, message, duration=10, threaded=True)
-                except:
-                    pass
-            
-            # Always show in-app notification as fallback
+        # Try plyer notification first
+        if notification:
+            notification.notify(
+                title=title,
+                message=message,
+                app_icon=None,
+                timeout=10,
+            )
+        else:
+            # Fallback to Streamlit toast
             st.toast(f"🔔 {title}: {message}")
-            
-        except Exception as e:
-            # If all fails, show in-app notification
-            st.toast(f"🔔 {title}: {message}")
-            st.warning(f"Notification: {title} - {message}")
+    except Exception as e:
+        # If all fails, show in-app notification
+        st.toast(f"🔔 {title}: {message}")
+        st.warning(f"Notification: {title} - {message}")
+
 def check_medication_times():
     while True:
         if st.session_state.notifications_enabled:
